@@ -1,3 +1,6 @@
+// version 3.3
+// - new class GUI
+
 // CLASSESS
 
 export class Game {
@@ -7,6 +10,11 @@ export class Game {
     this.scaleFactor = 1;
     this.disableContextMenu = true;
     this.isDebug = true;
+    this.lastTime = 0;
+    this.fpsCounter = 0;
+    this.backgroundColor = "#d4d4d4";
+
+    this.groups = [];
 
     this.mouse = {
       clickFlag: false,
@@ -15,7 +23,8 @@ export class Game {
       RMBClickFlag: false,
       Wheel: false,
       WheelClickFlag: false,
-      lastMousePosition: { x: 0, y: 0 },
+      cameraLastMousePosition: { x: 0, y: 0 },
+      mouseMoveLastPosition: { x: 0, y: 0 },
       x: false,
       y: false,
     };
@@ -29,27 +38,59 @@ export class Game {
       y: 0,
     };
   }
-  setCamera(x, y) {
-    this.camera.x = x - this.canvas.width / (2 * this.scaleFactor);
-    this.camera.y = y - this.canvas.height / (2 * this.scaleFactor);
+
+  createGroup(name) {
+    this.groups.push({ name, sprites: [] });
+    console.log(`Group ${name} created. Groups:`, this.groups);
+  }
+
+  addToGroup(groupName, sprite) {
+    // check if group exists
+    const group = this.groups.find((group) => group.name === groupName);
+    const index = this.groups.indexOf(group);
+
+    if (!group) {
+      console.error(`Group ${groupName} does not exist`);
+      return;
+    }
+
+    if (!(sprite instanceof Sprite)) {
+      console.error(
+        `Error while adding to group ${groupName}. Parameter must be an instance of Sprite class`,
+      );
+      return;
+    }
+
+    this.groups[index].sprites.push(sprite);
+  }
+
+  updateCamera(x, y) {
+    this.camera.x = +(x - this.canvas.width / (2 * this.scaleFactor)).toFixed(
+      1,
+    );
+    this.camera.y = +(y - this.canvas.height / (2 * this.scaleFactor)).toFixed(
+      1,
+    );
+
+    // console.log("camera", this.camera.x, this.camera.y);
   }
 
   // this function have to be called on every frame
   moveCameraRMB() {
     if (this.mouse.RMB) {
-      const dx = this.mouse.x - this.mouse.lastMousePosition.x;
-      const dy = this.mouse.y - this.mouse.lastMousePosition.y;
+      const dx = this.mouse.x - this.mouse.cameraLastMousePosition.x;
+      const dy = this.mouse.y - this.mouse.cameraLastMousePosition.y;
 
       this.camera.x += dx * -1;
       this.camera.y += dy * -1;
 
-      this.mouse.lastMousePosition.x = this.mouse.x;
-      this.mouse.lastMousePosition.y = this.mouse.y;
+      this.mouse.cameraLastMousePosition.x = this.mouse.x;
+      this.mouse.cameraLastMousePosition.y = this.mouse.y;
 
       // console.log("camera", this.camera.x, this.camera.y);
     } else {
-      this.mouse.lastMousePosition.x = this.mouse.x;
-      this.mouse.lastMousePosition.y = this.mouse.y;
+      this.mouse.cameraLastMousePosition.x = this.mouse.x;
+      this.mouse.cameraLastMousePosition.y = this.mouse.y;
     }
   }
 
@@ -97,6 +138,10 @@ export class Game {
       this.mouse.y = Math.round(ev.offsetY / this.scaleFactor);
     });
 
+    this.canvas.addEventListener("wheel", (ev) => {
+      this.onMouseWheel(ev);
+    });
+
     this.canvas.addEventListener("keydown", (ev) => {
       if (!this.keys.key[ev.keyCode]) this.keys.key[ev.keyCode] = true;
       // console.log(ev.keyCode);
@@ -111,14 +156,221 @@ export class Game {
     this.ctx.scale(this.scaleFactor, this.scaleFactor);
     this.ctx.imageSmoothingEnabled = false;
 
-    this.setCamera(0, 0);
+    this.updateCamera(0, 0);
 
-    // console.log(this);
+    //  bind the method to your class to make sure this points to your class.
+    requestAnimationFrame(this.gameLoop.bind(this));
   }
 
   clearRect() {
-    this.ctx.fillStyle = "#898989";
+    this.ctx.fillStyle = this.backgroundColor;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  onMouseWheel(ev) {}
+
+  // Game loop
+  gameLoop(timestamp) {
+    const deltaTime = +(timestamp - this.lastTime).toFixed(2);
+    this.lastTime = timestamp;
+    const fps = 1000 / deltaTime;
+
+    this.clearRect();
+
+    this.update(deltaTime);
+    this.draw(deltaTime);
+
+    // --------- draw -----------
+    this.groups.forEach((group, groupIndex) => {
+      group.sprites.forEach((sprite, spriteIndex) => {
+        sprite.draw(deltaTime, groupIndex, spriteIndex);
+      });
+    });
+
+    // --------- update -----------
+
+    this.groups.forEach((group, groupIndex) => {
+      group.sprites.forEach((sprite, spriteIndex) => {
+        // if update function exists
+        if (sprite.update) sprite.update(deltaTime, groupIndex, spriteIndex);
+      });
+    });
+
+    const skipFactor = 100;
+    if (Math.floor(timestamp / 10) % skipFactor === 0) {
+      // kod który bedzie sie wykonywal co skipFactor petli
+      this.fpsCounter = Math.round(fps);
+    }
+    drawText(`FPS: ${this.fpsCounter}`, 10, 10, this);
+
+    // execute once if mouse is pressed
+    if (this.mouse.isMouseDown && !this.mouse.clickFlag) {
+      this.mouse.clickFlag = true;
+
+      // execute once if mouse is pressed
+      this.onClickLMB();
+    } else if (!this.mouse.isMouseDown && this.mouse.clickFlag) {
+      this.mouse.clickFlag = false;
+
+      // execute once if mouse is unpressed
+      this.onUnclickLMB();
+    }
+
+    // execute every mouse move
+    if (
+      this.mouse.x !== this.mouse.mouseMoveLastPosition.x ||
+      this.mouse.y !== this.mouse.mouseMoveLastPosition.y
+    ) {
+      this.onMouseMove();
+      this.mouse.mouseMoveLastPosition.x = this.mouse.x;
+      this.mouse.mouseMoveLastPosition.y = this.mouse.y;
+    }
+
+    //  bind the method to your class to make sure this points to your class.
+    requestAnimationFrame(this.gameLoop.bind(this));
+  }
+
+  update(deltaTime) {}
+  draw(deltaTime) {}
+
+  onClickLMB() {}
+  onUnclickLMB() {}
+  onMouseMove() {}
+}
+
+export class GUI {
+  constructor(game) {
+    this.game = game;
+    this.windows = [];
+    this.tiles = [];
+    this.img = null;
+  }
+
+  addImage(img) {
+    this.img = img;
+  }
+
+  addTile(x, y, width, height, id, position3x3Type = false) {
+    // check types and console log
+    if (
+      typeof x !== "number" ||
+      typeof y !== "number" ||
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      typeof id !== "string"
+    ) {
+      console.warn("GUI addTile: Invalid argument(s).");
+      return;
+    }
+
+    // position3x3Type can be only "leftTop", "rightTop", "leftBottom", "rightBottom", "top", "bottom", "left", "right", "center"
+    if (position3x3Type) {
+      if (
+        position3x3Type !== "leftTop" &&
+        position3x3Type !== "rightTop" &&
+        position3x3Type !== "leftBottom" &&
+        position3x3Type !== "rightBottom" &&
+        position3x3Type !== "top" &&
+        position3x3Type !== "bottom" &&
+        position3x3Type !== "left" &&
+        position3x3Type !== "right" &&
+        position3x3Type !== "center"
+      ) {
+        console.warn("GUI addTile: Invalid position3x3Type argument.");
+        return;
+      }
+    }
+
+    // check if id already exists, only when position3x3Type is false
+    if (!position3x3Type) {
+      if (this.tiles.find((tile) => tile.id === id)) {
+        console.warn(`GUI addTile: Tile with id ${id} already exists.`);
+        return;
+      }
+    }
+
+    // add tile
+    this.tiles.push({ x, y, width, height, id, position3x3Type });
+  }
+
+  createWindow(tilesWidth, tilesHeight, tileId, x, y) {
+    // check if id exist and all 9 tiles exist with this id
+    const tiles = this.tiles.filter((tile) => tile.id === tileId);
+    if (tiles.length !== 9) {
+      console.warn(`GUI createWindow: Tile with id ${tileId} does not exist.`);
+      return;
+    }
+
+    const dataToDraw = { tilesWidth, tilesHeight, x, y };
+
+    tiles.forEach((tile) => {
+      if (!tile.position3x3Type) {
+        console.warn(
+          `GUI createWindow: Tile with id ${tileId} does not have position3x3Type.`,
+        );
+        return;
+      }
+
+      dataToDraw[tile.position3x3Type] = {
+        fromX: tile.x,
+        fromY: tile.y,
+        fromWidth: tile.width,
+        fromHeight: tile.height,
+      };
+    });
+
+    return dataToDraw;
+  }
+
+  draw(dataFromCreateWindow) {
+    // 2d loop
+    for (let yPos = 0; yPos < dataFromCreateWindow.tilesHeight; yPos++) {
+      for (let xPos = 0; xPos < dataFromCreateWindow.tilesWidth; xPos++) {
+        // is first or last tile in row or column
+        let string = null;
+
+        if (xPos === 0 && yPos === 0) {
+          string = "leftTop";
+        } else if (xPos === dataFromCreateWindow.tilesWidth - 1 && yPos === 0) {
+          string = "rightTop";
+        } else if (
+          xPos === 0 &&
+          yPos === dataFromCreateWindow.tilesHeight - 1
+        ) {
+          string = "leftBottom";
+        } else if (
+          xPos === dataFromCreateWindow.tilesWidth - 1 &&
+          yPos === dataFromCreateWindow.tilesHeight - 1
+        ) {
+          string = "rightBottom";
+        } else if (yPos === 0) {
+          string = "top";
+        } else if (yPos === dataFromCreateWindow.tilesHeight - 1) {
+          string = "bottom";
+        } else if (xPos === 0) {
+          string = "left";
+        } else if (xPos === dataFromCreateWindow.tilesWidth - 1) {
+          string = "right";
+        } else {
+          string = "center";
+        }
+
+        // draw tile
+        this.game.ctx.drawImage(
+          this.img,
+          dataFromCreateWindow[string].fromX,
+          dataFromCreateWindow[string].fromY,
+          dataFromCreateWindow[string].fromWidth,
+          dataFromCreateWindow[string].fromHeight,
+          dataFromCreateWindow.x +
+            xPos * dataFromCreateWindow[string].fromWidth,
+          dataFromCreateWindow.y +
+            yPos * dataFromCreateWindow[string].fromHeight,
+          dataFromCreateWindow[string].fromWidth,
+          dataFromCreateWindow[string].fromHeight,
+        );
+      }
+    }
   }
 }
 
@@ -132,7 +384,11 @@ export class Sprite {
 
     this.isFlipX = false;
     this.isFlipY = false;
+
+    this.isOriginInCenter = false;
+
     this.animName = "unset";
+    this.killAfterFirstAnim = false;
 
     this.viewType = "unset"; // unset, texture, anim
   }
@@ -170,7 +426,7 @@ export class Sprite {
     rw,
     rh,
     isDraw = false,
-    tolerance = 0
+    tolerance = 0,
   ) {
     // Ustalenie długości odcinków centerToCenterX oraz centerToCenterY.
     // Określają one poziomą i pionową odległość pomiędzy środkami obiektów.
@@ -258,7 +514,7 @@ export class Sprite {
           this.game.ctx,
           this.game.camera,
           "red",
-          2
+          2,
         );
         drawLineOnMap(
           rectPoint1.x,
@@ -268,7 +524,7 @@ export class Sprite {
           this.game.ctx,
           this.game.camera,
           "red",
-          2
+          2,
         );
       }
     }
@@ -277,32 +533,32 @@ export class Sprite {
       : false;
   }
 
-  /**
-   * Check on which side of the tile current sprite is located
-   * @param {Object} tile Tile to check
-   * @returns {String} Side of the tile where the sprite is located (top, right, bottom, left)
-   */
-  getSideOfTile(tile) {
-    const isAbove = this.y + this.height / 2 >= tile.y + tile.height / 2;
-    const isBelow = this.y + this.height / 2 <= tile.y + tile.height / 2;
-    const isLeft = this.x + this.width / 2 >= tile.x + tile.width / 2;
-    const isRight = this.x + this.width / 2 <= tile.x + tile.width / 2;
+  // /**
+  //  * Check on which side of the tile current sprite is located
+  //  * @param {Object} tile Tile to check
+  //  * @returns {String} Side of the tile where the sprite is located (top, right, bottom, left)
+  //  */
+  // getSideOfTile(tile) {
+  //   const isAbove = this.y + this.height / 2 >= tile.y + tile.height / 2;
+  //   const isBelow = this.y + this.height / 2 <= tile.y + tile.height / 2;
+  //   const isLeft = this.x + this.width / 2 >= tile.x + tile.width / 2;
+  //   const isRight = this.x + this.width / 2 <= tile.x + tile.width / 2;
 
-    if (isLeft) {
-      return "left";
-    }
-    if (isRight) {
-      return "right";
-    }
-    if (isAbove) {
-      return "top";
-    }
-    if (isBelow) {
-      return "bottom";
-    }
+  //   if (isLeft) {
+  //     return "left";
+  //   }
+  //   if (isRight) {
+  //     return "right";
+  //   }
+  //   if (isAbove) {
+  //     return "top";
+  //   }
+  //   if (isBelow) {
+  //     return "bottom";
+  //   }
 
-    return null;
-  }
+  //   return null;
+  // }
 
   addTexture(fromX, fromY, fromWidth, fromHeight, image) {
     this.viewType = "texture";
@@ -323,7 +579,7 @@ export class Sprite {
           `${fromWidth}x${fromHeight}. ` +
           "Wymiary sprita: " +
           `${this.width}x${this.height}. ` +
-          "Zalecane jest zmianę wymiarów sprita na wymiary tekstury."
+          "Zalecane jest zmianę wymiarów sprita na wymiary tekstury.",
       );
     }
   }
@@ -364,12 +620,12 @@ export class Sprite {
           `${fromWidth}x${fromHeight}. ` +
           "Wymiary sprita: " +
           `${this.width}x${this.height}. ` +
-          "Zalecane jest zmianę wymiarów sprita na wymiary tekstury animacji."
+          "Zalecane jest zmianę wymiarów sprita na wymiary tekstury animacji.",
       );
     }
   }
 
-  draw(deltaTime) {
+  draw(deltaTime, groupIndex, spriteIndex) {
     if (this.viewType === "texture") {
       drawImagePartWithTransform(
         this.texture.image,
@@ -389,56 +645,117 @@ export class Sprite {
         this.game.ctx,
         0,
         0,
-        true
+        true,
       );
     } else if (this.viewType === "anim") {
-      // animation logic
+      // Update the current frame time with delta time
       this.anim[this.animName].currFrameTime += deltaTime;
+
+      // Check if it's time to switch to the next frame
       if (
         this.anim[this.animName].currFrameTime >=
         this.anim[this.animName].frameTime
       ) {
+        // Subtract the frame time from the current frame time
         this.anim[this.animName].currFrameTime -=
           this.anim[this.animName].frameTime;
+
+        // Update the current frame, loop back to the first frame if at the last frame
         this.anim[this.animName].currFrame =
           (this.anim[this.animName].currFrame + 1) %
           this.anim[this.animName].frames;
+
+        // Call a function to stop play when first animation is done
+        if (this.anim[this.animName].currFrame === 0) {
+          // this.#killAfterFirstAnimation();
+          if (this.killAfterFirstAnim) {
+            this.#killMe(groupIndex, spriteIndex);
+          }
+        }
       }
 
-      drawImagePartWithTransform(
-        this.anim[this.animName].image,
-        this.anim[this.animName].fromX +
-          this.anim[this.animName].fromWidth *
-            this.anim[this.animName].currFrame,
-        this.anim[this.animName].fromY,
-        this.anim[this.animName].fromWidth,
-        this.anim[this.animName].fromHeight,
-        this.x - this.game.camera.x,
-        this.y - this.game.camera.y,
-        this.anim[this.animName].fromWidth,
-        this.anim[this.animName].fromHeight,
-        this.isFlipX,
-        this.isFlipY,
-        this.anim[this.animName].rotateDeg,
-        this.anim[this.animName].rotatePointX,
-        this.anim[this.animName].rotatePointY,
-        this.game.ctx,
-        0,
-        0,
-        this.game.isDebug
-      );
+      if (this.viewType === "anim")
+        drawImagePartWithTransform(
+          this.anim[this.animName].image,
+          this.anim[this.animName].fromX +
+            this.anim[this.animName].fromWidth *
+              this.anim[this.animName].currFrame,
+          this.anim[this.animName].fromY,
+          this.anim[this.animName].fromWidth,
+          this.anim[this.animName].fromHeight,
+          (this.isOriginInCenter ? this.x - this.width / 2 : this.x) -
+            this.game.camera.x,
+          (this.isOriginInCenter ? this.y - this.height / 2 : this.y) -
+            this.game.camera.y,
+          this.anim[this.animName].fromWidth,
+          this.anim[this.animName].fromHeight,
+          this.isFlipX,
+          this.isFlipY,
+          this.anim[this.animName].rotateDeg,
+          this.anim[this.animName].rotatePointX,
+          this.anim[this.animName].rotatePointY,
+          this.game.ctx,
+          0,
+          0,
+          this.game.isDebug,
+        );
     }
     // hitbox
     if (this.game.isDebug) {
       drawRectOnMap(
-        this.x,
-        this.y,
+        this.isOriginInCenter ? this.x - this.width / 2 : this.x,
+        this.isOriginInCenter ? this.y - this.height / 2 : this.y,
         this.width,
         this.height,
         this.game.ctx,
-        this.game.camera
+        this.game.camera,
       );
     }
+  }
+
+  #killMe(groupIndex, spriteIndex) {
+    // console.log("First animation is done.");
+    this.viewType = "unset";
+    this.anim = null;
+    this.animName = "unset";
+
+    this.game.groups[groupIndex].sprites.splice(spriteIndex, 1);
+  }
+}
+
+export class Projectile extends Sprite {
+  constructor(x, y, width, height, game, velX, velY) {
+    super(x, y, width, height, game);
+
+    this.x = x;
+    this.y = y;
+    this.vel = new Vector(velX, velY);
+    this.acc = new Vector(0, 0);
+  }
+
+  update(deltaTime, groupIndex, spriteIndex) {
+    this.x += this.vel.x;
+    this.y += this.vel.y;
+
+    if (this.killAfterDistanceVar) {
+      this.distanceTraveled += this.vel.getLen();
+      // console.log(this.vel.getLen());
+      // console.log("Distance traveled: ", this.distanceTraveled);
+
+      if (this.distanceTraveled > this.killAfterDistanceVar) {
+        this.kill(groupIndex, spriteIndex);
+      }
+    }
+  }
+
+  killAfterDistance(distance) {
+    this.killAfterDistanceVar = distance;
+    this.distanceTraveled = 0;
+  }
+
+  kill(groupIndex, spriteIndex) {
+    this.game.groups[groupIndex].sprites.splice(spriteIndex, 1);
+    console.log("Projectile killed.");
   }
 }
 
@@ -450,6 +767,10 @@ export class Character extends Sprite {
     this.y = y;
     this.vel = new Vector(0, 0);
     this.acc = new Vector(0, 0);
+    this.accSpeed = 0.1;
+    this.moveSpeed = 1;
+
+    this.controllsType = null; // "WSAD", "LMB", "RMB"
 
     this.collisionWithSprites = [];
     this.isCollisionWithCollidableTiles = false;
@@ -465,18 +786,17 @@ export class Character extends Sprite {
     // };
   }
 
-  update() {
-    // this.WSADMove();
-    // this.mouseMove();
-    // these functions only set velocity
+  // movement based on acceleration
 
+  update() {
     // zmiana animacji
-    if (this.currentAnim !== "idle" && this.vel.getLen() === 0) {
-      this.setCurrentAnim("idle");
-    }
-    if (this.vel.getLen() > 0) {
-      this.setCurrentAnim("run");
-    }
+    // TODO: this.setCurrentAnim("idle"); powoduje błąd
+    // if (this.currentAnim !== "idle" && this.vel.getLen() === 0) {
+    //   this.setCurrentAnim("idle");
+    // }
+    // if (this.vel.getLen() > 0) {
+    //   this.setCurrentAnim("run");
+    // }
 
     // odwrócenie animacji w poziomie
     if (this.vel.x < 0) {
@@ -485,46 +805,147 @@ export class Character extends Sprite {
       this.isFlipX = false;
     }
 
-    this.collideManager();
+    if (this.controllsType === "WSAD") {
+      // when i press one of the keys, apply accSpeed value to acc Vector
+      if (this.game.keys.key[65]) {
+        this.acc.x = -this.accSpeed; // if pressed a
+      } else if (this.game.keys.key[68]) {
+        this.acc.x = this.accSpeed; // if pressed d
+      } else {
+        // dont accelerate
+        this.acc.x = 0;
+
+        // slow down
+        if (this.vel.x > 0) {
+          this.vel.x = +(this.vel.x - this.accSpeed).toFixed(2);
+          if (this.vel.x < 0.01) this.vel.x = 0; // cut slowing down when he is really slow
+        } else if (this.vel.x < 0) {
+          this.vel.x = +(this.vel.x + this.accSpeed).toFixed(2);
+          if (this.vel.x > 0.01) this.vel.x = 0; // cut slowing down when he is really slow
+        }
+      }
+      if (this.game.keys.key[87]) {
+        this.acc.y = -this.accSpeed; // if pressed w
+      } else if (this.game.keys.key[83]) {
+        this.acc.y = this.accSpeed; // if pressed s
+      } else {
+        this.acc.y = 0;
+
+        if (this.vel.y > 0) {
+          this.vel.y = +(this.vel.y - this.accSpeed).toFixed(2);
+          if (this.vel.y < 0.01) this.vel.y = 0; // cut slowing down when he is really slow
+        } else if (this.vel.y < 0) {
+          this.vel.y = +(this.vel.y + this.accSpeed).toFixed(2);
+          if (this.vel.y > 0.01) this.vel.y = 0; // cut slowing down when he is really slow
+        }
+      }
+    } else if (this.controllsType === "LMB" || this.controllsType === "RMB") {
+      // poruszanie sie za pomocą kliknięcia używając przyśpieszenia jest troche problematyczne ponieważ postać nie zwalnia gdy jest blisko celu i przez to nie zdąży wychamować.
+      // chyba lepiej używać zwygłego poruszania się na bazie velocity.
+
+      //click happens here
+      const click = this.controllsType === "LMB" ? "LMB" : "RMB";
+
+      // set destination point to mouse position depending on click type
+      if (
+        this.controllsType === "LMB"
+          ? this.game.mouse.isMouseDown
+          : this.game.mouse.RMB
+      ) {
+        // creating this.destinationPoint
+        this.destinationPoint = new Vector(
+          this.game.mouse.x + this.game.camera.x,
+          this.game.mouse.y + this.game.camera.y,
+        );
+      }
+
+      // move to destination point
+      if (this.destinationPoint) {
+        // ------- METODA 1 (PRZYSPIESZENIE) -------
+        // get direction
+        // const directionAngle = this.destinationPoint
+        //   .clone()
+        //   .sub({ x: this.x, y: this.y })
+        //   .mul(-1, -1)
+        //   .getAngleDeg();
+
+        // const tempAcc = new Vector(1, 1);
+        // tempAcc.setAngleDeg(directionAngle);
+        // tempAcc.setMag(this.accSpeed);
+
+        // this.acc = tempAcc;
+
+        // ------- METODA 2 (PRĘDKOŚĆ) -------
+        // creating vector from current position to destination point,
+        // normalize it and multiply it by moveSpeed
+        const tempVel = this.destinationPoint
+          .clone()
+          .sub({ x: this.x, y: this.y })
+          .normalize();
+        tempVel.mul(this.moveSpeed, this.moveSpeed);
+
+        // calculate range to destination point without mutating destination point
+        const rangeToDestinationPoint = this.destinationPoint
+          .clone()
+          .sub({ x: this.x, y: this.y })
+          .getLen();
+
+        if (rangeToDestinationPoint < 1) {
+          tempVel.set(0, 0);
+          this.destinationPoint = null;
+        }
+        this.vel = tempVel;
+      }
+    }
+
+    // add acc to vel
+    this.vel.add(this.acc);
+
+    // limit vel
+    this.vel.limit(this.moveSpeed);
 
     // add vel to pos
     this.x += this.vel.x;
     this.y += this.vel.y;
+
+    this.collideManager();
   }
 
-  applyKnockback(knockback) {
-    this.vel = knockback;
-  }
+  moveTo(x, y) {}
 
-  addStats(maxHP, maxMP, attack, defense, movementSpeed) {
-    this.stats = {};
-    this.stats.maxHP = maxHP;
-    this.stats.HP = maxHP;
-    this.stats.maxMP = maxMP;
-    this.stats.MP = maxMP;
-    this.stats.attack = attack;
-    this.stats.defense = defense;
-    this.stats.movementSpeed = movementSpeed;
+  // applyKnockback(knockback) {
+  //   this.vel = knockback;
+  // }
 
-    // chceck if all stats are added, if not console log error
-    const statsKeys = Object.keys(this.stats);
-    if (statsKeys.length !== 7) {
-      console.log("all stats are not added");
-    }
-  }
+  // addStats(maxHP, maxMP, attack, defense, movementSpeed) {
+  //   this.stats = {};
+  //   this.stats.maxHP = maxHP;
+  //   this.stats.HP = maxHP;
+  //   this.stats.maxMP = maxMP;
+  //   this.stats.MP = maxMP;
+  //   this.stats.attack = attack;
+  //   this.stats.defense = defense;
+  //   this.stats.movementSpeed = movementSpeed;
 
-  takeDamage(damage) {
-    // if hp is less than 0 set hp to 0
-    this.stats.HP = Math.max(0, this.stats.HP - damage);
-  }
+  //   // chceck if all stats are added, if not console log error
+  //   const statsKeys = Object.keys(this.stats);
+  //   if (statsKeys.length !== 7) {
+  //     console.log("all stats are not added");
+  //   }
+  // }
 
-  takeKnockback(vector) {
-    if (vector instanceof Vector) {
-      this.vel = vector;
-    } else {
-      console.warn("Not a vector in takeKnockback");
-    }
-  }
+  // takeDamage(damage) {
+  //   // if hp is less than 0 set hp to 0
+  //   this.stats.HP = Math.max(0, this.stats.HP - damage);
+  // }
+
+  // takeKnockback(vector) {
+  //   if (vector instanceof Vector) {
+  //     this.vel = vector;
+  //   } else {
+  //     console.warn("Not a vector in takeKnockback");
+  //   }
+  // }
 
   collideManager() {
     if (this.isCollisionWithCollidableTiles) this.collideWithCollidableTiled();
@@ -547,21 +968,18 @@ export class Character extends Sprite {
     this.vel = tempVel;
   }
 
-  WSADMove(game) {
-    // create a temporary vector and change it with pressed keys
-    // add it to velocity
-    let tempVel = new Vector(0, 0); // tymczasowy vector
-    if (game.keys.key[65]) tempVel.x = -1; // if pressed a
-    if (game.keys.key[68]) tempVel.x = 1; // if pressed d
-    if (game.keys.key[87]) tempVel.y = -1; // if pressed w
-    if (game.keys.key[83]) tempVel.y = 1; // if pressed s
+  enableWSADMove() {
+    this.controllsType = "WSAD";
+  }
 
-    tempVel.normalize();
-    tempVel.mul(0.5, 0.5);
+  enableMOUSEMove(LMBorRMB) {
+    // check only "LMB" or "RMB"
+    if (LMBorRMB !== "LMB" && LMBorRMB !== "RMB") {
+      console.log("ERROR: LMBorRMB should be 'LMB' or 'RMB'");
+      return;
+    }
 
-    this.vel = tempVel;
-
-    // return tempVel;
+    this.controllsType = LMBorRMB;
   }
 
   moveToPointWIP(x, y) {
@@ -570,41 +988,6 @@ export class Character extends Sprite {
     tempVel.normalize();
     tempVel.mul(0.5, 0.5);
     this.vel = tempVel;
-  }
-
-  moveToClickPoint(game) {
-    // set destination point to mouse position
-    if (game.mouse.isMouseDown) {
-      this.destinationPoint = new Vector(
-        game.mouse.x + game.camera.x,
-        game.mouse.y + game.camera.y
-      );
-    }
-
-    // move to destination point
-    if (this.destinationPoint) {
-      // calculate range to destination point without mutating destination point
-      const rangeToDestinationPoint = this.destinationPoint
-        .clone()
-        .sub({ x: this.x, y: this.y })
-        .getLen();
-      // console.log(rangeToDestinationPoint);
-
-      let tempVel = new Vector(0, 0);
-
-      tempVel.x = this.destinationPoint.x - this.x;
-      tempVel.y = this.destinationPoint.y - this.y;
-
-      tempVel.normalize();
-
-      tempVel.mul(0.5, 0.5);
-
-      if (rangeToDestinationPoint < 1) {
-        tempVel = new Vector(0, 0);
-        this.destinationPoint = null;
-      }
-      this.vel = tempVel;
-    }
   }
 
   collideWithCollidableTiled() {
@@ -635,7 +1018,7 @@ export class Character extends Sprite {
         tile.width,
         tile.height,
         false,
-        1
+        1,
       );
 
       // oblicz najbliższy tylko z kolidujących
@@ -670,7 +1053,7 @@ export class Character extends Sprite {
           this.tiled.collidable[tile[1].index].y,
           this.tiled.collidable[tile[1].index].width,
           this.tiled.collidable[tile[1].index].height,
-          true
+          true,
         );
         if (collision.side) {
           // console.log(collision);
@@ -709,12 +1092,10 @@ export class Character extends Sprite {
         el.width,
         el.height,
         true,
-        1
+        1,
       );
 
       if (coll.side) {
-        // console.log(collision);
-
         // zablokuj ruch
         if (coll.side === "bottom") {
           // velocity Y nie może być większe od zera
@@ -744,7 +1125,7 @@ export class Character extends Sprite {
     // check if tiled.collidable is not empty
     if (tiled.collidable.length === 0) {
       console.warn(
-        "No collidable tiles found in Tiled. Add layer using addLayerToCollidable()."
+        "No collidable tiles found in Tiled. Add layer using addLayerToCollidable().",
       );
     } else {
       this.tiled = tiled;
@@ -759,39 +1140,93 @@ export class Character extends Sprite {
 }
 
 export class Tiled {
-  constructor(game, jsonData, image) {
+  constructor(game, jsonFilePath, image) {
     this.game = game;
-    this.jsonData = jsonData;
+    this.jsonData = null;
+    this.tilesWithBorders = [];
     this.image = image;
 
     this.mapSize = null;
 
     this.collidable = [];
     this.highlight = [];
-    this.preload();
+    // this.preload();
+
+    // before i import json file like this and i have prettier errrors
+    // import jsonData from "./gamev11map.json" with { type: "json" };
+    //
+    // we have to load json file like this
+    this.#loadJson(jsonFilePath);
   }
 
-  preload() {
-    // get world bounds
-    this.mapSize = this.getMapSize(); // need it for draw world bounds
-  }
+  // function that load local json file asynchronously
+  async #loadJson(path) {
+    try {
+      console.log(`TILED: Loading JSON file: ${path}`);
+      const response = await fetch(path);
+      const json = await response.json();
 
-  getWorldBounds() {
-    // check if mapSize is null
-    if (this.mapSize === null) {
-      console.warn(
-        "Map size is null. Please set it before getting world bounds."
-      );
-      return { x: null, y: null, width: null, height: null };
+      this.jsonData = json;
+      console.log(`TILED: JSON file loaded:`, this.jsonData);
+      this.mapSize = this.getMapSize();
+
+      this.tilesWithBorders = this.#getTilesWithBorders(json.tilesets[0]);
+    } catch (error) {
+      console.error(`Error loading JSON file: ${error}`);
     }
-    return {
-      x: 0,
-      y: 0,
-      width: this.mapSize.width,
-      height: this.mapSize.height,
-    };
   }
 
+  #getTilesWithBorders(tileset) {
+    // find tiles with properties "border"
+    const borderTiles = [];
+
+    // if none properities are created then "tiles" in tileset not exist
+    if (typeof tileset.tiles !== "undefined") {
+      tileset.tiles.forEach((tile) => {
+        // check if tile have object properties
+        if (tile.properties) {
+          tile.properties.forEach((property) => {
+            if (property.name === "border" && property.value === true) {
+              // add id to array
+              // WARNING: +1 because Tiled make one digit difrence
+              borderTiles.push(tile.id + 1);
+            }
+          });
+        }
+      });
+    } else {
+      // there is no properities
+    }
+
+    console.log(`TILED: Tiles with borders:`, borderTiles);
+
+    return borderTiles;
+  }
+
+  // // DISABLED
+  // preload() {
+  //   // get world bounds
+  //   this.mapSize = this.getMapSize(); // need it for draw world bounds
+  // }
+
+  // DISABLED
+  // getWorldBounds() {
+  //   // check if mapSize is null
+  //   if (this.mapSize === null) {
+  //     console.warn(
+  //       "Map size is null. Please set it before getting world bounds."
+  //     );
+  //     return { x: null, y: null, width: null, height: null };
+  //   }
+  //   return {
+  //     x: 0,
+  //     y: 0,
+  //     width: this.mapSize.width,
+  //     height: this.mapSize.height,
+  //   };
+  // }
+
+  // DISABLED
   /**
    * Checks if the given object is fully inside the map boundaries.
    *
@@ -801,130 +1236,128 @@ export class Tiled {
    * @param {number} height - The height of the object.
    * @return {boolean} Whether the object is fully inside the map boundaries.
    */
-  isInside(x, y, width, height) {
-    const worldBounds = this.getWorldBounds();
-    // chceck if getWorldBounds return null and console.warn
-    if (worldBounds.x === null) {
-      console.warn(
-        "Map size is null. Please set it before checking if object is inside."
-      );
-      return false;
-    }
+  // isInside(x, y, width, height) {
+  //   const worldBounds = this.getWorldBounds();
+  //   // chceck if getWorldBounds return null and console.warn
+  //   if (worldBounds.x === null) {
+  //     console.warn(
+  //       "Map size is null. Please set it before checking if object is inside."
+  //     );
+  //     return false;
+  //   }
 
-    return (
-      x >= worldBounds.x &&
-      x + width <= worldBounds.x + worldBounds.width &&
-      y >= worldBounds.y &&
-      y + height <= worldBounds.y + worldBounds.height
-    );
-  }
+  //   return (
+  //     x >= worldBounds.x &&
+  //     x + width <= worldBounds.x + worldBounds.width &&
+  //     y >= worldBounds.y &&
+  //     y + height <= worldBounds.y + worldBounds.height
+  //   );
+  // }
 
-  addLayerToCollidable(layerName) {
-    const layer = this.jsonData.layers.filter((el) => el.name === layerName)[0];
+  // addLayerToCollidable(layerName) {
+  //   // check if jsonData is loaded
+  //   if (this.jsonData === null) return;
 
-    layer.chunks.forEach((chunk) => {
-      chunk.data.forEach((el, index) => {
-        if (el !== 0) {
-          const pos = this.get2dPosFrom1dArray(index, 16);
-          this.collidable.push({
-            x: pos.x * 16 + chunk.x * 16,
-            y: pos.y * 16 + chunk.y * 16,
-            width: 16,
-            height: 16,
-          });
-        }
-      });
-    });
-  }
+  //   const layer = this.jsonData.layers.filter((el) => el.name === layerName)[0];
 
-  drawDebug() {
-    if (!this.game.isDebug) return;
+  //   layer.chunks.forEach((chunk) => {
+  //     chunk.data.forEach((el, index) => {
+  //       if (el !== 0) {
+  //         const pos = this.get2dPosFrom1dArray(index, 16);
+  //         this.collidable.push({
+  //           x: pos.x * 16 + chunk.x * 16,
+  //           y: pos.y * 16 + chunk.y * 16,
+  //           width: 16,
+  //           height: 16,
+  //         });
+  //       }
+  //     });
+  //   });
+  // }
 
-    // draw world bounds
-    // check if mapSize is null
-    if (this.mapSize === null) {
-      console.warn(
-        "Map size is null. Please set it before drawing world bounds."
-      );
-    } else {
-      drawRectOnMap(
-        0,
-        0,
-        this.mapSize.width,
-        this.mapSize.height,
-        this.game.ctx,
-        this.game.camera
-      );
-    }
+  //DISABLED
+  // drawDebug() {
+  //   if (!this.game.isDebug) return;
 
-    // draw collidable
-    this.collidable.forEach((el) =>
-      drawRectOnMap(el.x, el.y, 16, 16, this.game.ctx, this.game.camera)
-    );
+  //   // draw world bounds
+  //   // check if mapSize is null
+  //   if (this.mapSize === null) {
+  //     console.warn(
+  //       "Map size is null. Please set it before drawing world bounds."
+  //     );
+  //   } else {
+  //     drawRectOnMap(
+  //       0,
+  //       0,
+  //       this.mapSize.width,
+  //       this.mapSize.height,
+  //       this.game.ctx,
+  //       this.game.camera
+  //     );
+  //   }
 
-    // draw highlight
-    this.highlight.forEach((el) =>
-      drawRectOnMap(
-        el.x,
-        el.y,
-        el.width,
-        el.height,
-        this.game.ctx,
-        this.game.camera,
-        "red"
-      )
-    );
+  //   // draw collidable
+  //   this.collidable.forEach((el) =>
+  //     drawRectOnMap(el.x, el.y, 16, 16, this.game.ctx, this.game.camera)
+  //   );
 
-    // highlight tile
-  }
+  //   // draw highlight
+  //   this.highlight.forEach((el) =>
+  //     drawRectOnMap(
+  //       el.x,
+  //       el.y,
+  //       el.width,
+  //       el.height,
+  //       this.game.ctx,
+  //       this.game.camera,
+  //       "red"
+  //     )
+  //   );
 
-  highlightTiles(tiles) {
-    this.highlight = tiles;
-  }
+  //   // highlight tile
+  // }
+
+  // highlightTiles(tiles) {
+  //   this.highlight = tiles;
+  // }
 
   getMapSize() {
-    // Pobiera rozmiar mapy na podstawie ostatniego chunka w każdym warstwie.
+    // Pobiera rozmiar mapy na podstawie ostatniego chunka w każdej warstwie.
     let width = 0;
     let height = 0;
+    let startX = 0;
+    let startY = 0;
+
+    const tileHeight = this.jsonData.tileheight;
+    const tileWidth = this.jsonData.tilewidth;
 
     this.jsonData.layers.forEach((layer) => {
-      // sprawdza ostatni chunk w każdej warstwie i ten najwiekszy zapisuje
-
-      const lastChunk = layer.chunks[layer.chunks.length - 1];
-
-      // sprawdzamy, czy rozmiar mapy musi zostać zaktualizowany
-      // największa wartość x koordynaty ostatniego chunka w warstwie + szerokość tego chunka
-      // jest większa niż aktualny rozmiar mapy w osi x
-      if (
-        lastChunk.x * this.jsonData.tilewidth +
-          lastChunk.width * this.jsonData.tilewidth >
-        width
-      ) {
-        width =
-          lastChunk.x * this.jsonData.tilewidth +
-          lastChunk.width * this.jsonData.tilewidth;
-      }
-      // największa wartość y koordynaty ostatniego chunka w warstwie + wysokość tego chunka
-      // jest większa niż aktualny rozmiar mapy w osi y
-      if (
-        lastChunk.y * this.jsonData.tileheight +
-          lastChunk.height * this.jsonData.tileheight >
-        height
-      ) {
-        height =
-          lastChunk.y * this.jsonData.tileheight +
-          lastChunk.height * this.jsonData.tileheight;
-      }
+      width = Math.max(width, layer.width);
+      height = Math.max(height, layer.height);
+      startX = Math.min(startX, layer.startx);
+      startY = Math.min(startY, layer.starty);
     });
 
-    return { width, height };
+    const mapSize = {
+      dimensionsTiles: { width, height },
+      bordersPositions: {
+        top: startY * tileHeight,
+        left: startX * tileWidth,
+        right: (startX + width) * tileWidth,
+        bottom: (startY + height) * tileHeight,
+      },
+    };
+
+    console.log(`Map size: `, mapSize);
+
+    return mapSize;
   }
 
-  getTilePosFromSpritesheet(
+  #getTilePosFromSpritesheet(
     id,
     tilesetsColumns,
     tilesetsTileWidth,
-    tilkesetsTileHeight
+    tilkesetsTileHeight,
   ) {
     // TODO: dodać wyszukiwanie tileset po nazwie "name":"spritesheet",
 
@@ -934,25 +1367,94 @@ export class Tiled {
     return { x: column * tilesetsTileWidth, y: row * tilkesetsTileHeight };
   }
 
-  /**
-   * @description
-   *   Generates 2D position from 1D array index.
-   *
-   * @param {number} index
-   *   1D array index.
-   * @param {number} columns
-   *   Number of columns in 2D array.
-   *
-   * @returns {{x: number, y: number}}
-   *   2D position.
-   */
-  get2dPosFrom1dArray(index, columns) {
-    const x = index % columns;
-    const y = Math.floor(index / columns);
-    return { x, y };
+  drawLayer(layerName, playerX, playerY) {
+    // check if jsonData is loaded
+    if (this.jsonData === null) {
+      console.warn("json file is no loaded yet, skipping drawLayer");
+      return;
+    }
+
+    // check if layer exists
+    if (
+      this.jsonData.layers.filter((el) => el.name === layerName).length === 0
+    ) {
+      console.warn("layer ", layerName, "not found, skipping drawLayer");
+      return;
+    }
+
+    // find layer
+    const layer = this.jsonData.layers.filter((el) => el.name === layerName)[0];
+
+    let counter = 0;
+    for (let i = 0; i < layer.chunks.length; i++) {
+      // draw only chunk that player is in and chunks around it
+      if (
+        this.#isSomethingIsInChunk(layer.chunks[i], playerX, playerY) ||
+        this.#isSomethingIsInChunk(
+          layer.chunks[i],
+          playerX - 16 * 16,
+          playerY,
+        ) ||
+        this.#isSomethingIsInChunk(
+          layer.chunks[i],
+          playerX + 16 * 16,
+          playerY,
+        ) ||
+        this.#isSomethingIsInChunk(
+          layer.chunks[i],
+          playerX,
+          playerY - 16 * 16,
+        ) ||
+        this.#isSomethingIsInChunk(
+          layer.chunks[i],
+          playerX,
+          playerY + 16 * 16,
+        ) ||
+        this.#isSomethingIsInChunk(
+          layer.chunks[i],
+          playerX - 16 * 16,
+          playerY - 16 * 16,
+        ) ||
+        this.#isSomethingIsInChunk(
+          layer.chunks[i],
+          playerX + 16 * 16,
+          playerY - 16 * 16,
+        ) ||
+        this.#isSomethingIsInChunk(
+          layer.chunks[i],
+          playerX - 16 * 16,
+          playerY + 16 * 16,
+        ) ||
+        this.#isSomethingIsInChunk(
+          layer.chunks[i],
+          playerX + 16 * 16,
+          playerY + 16 * 16,
+        )
+      ) {
+        let tilesCounter = this.#drawChunk(
+          layer.chunks[i],
+          this.jsonData.tilesets[0],
+          this.image,
+        );
+        counter += tilesCounter;
+      }
+    }
+    return counter;
   }
 
-  drawChunk(chunk, tileset) {
+  #isSomethingIsInChunk(chunk, smtngX, smtngY) {
+    // check if smtng is in chunk
+    if (
+      smtngX >= chunk.x * 16 &&
+      smtngX <= chunk.x * 16 + chunk.width * 16 &&
+      smtngY >= chunk.y * 16 &&
+      smtngY <= chunk.y * 16 + chunk.height * 16
+    ) {
+      return true;
+    }
+  }
+
+  #drawChunk(chunk, tileset) {
     // this function draw chunk in correct position => chunk.x and chunk.y,
     // so you dont have to specify where to draw this
 
@@ -961,67 +1463,101 @@ export class Tiled {
     const chunkX = chunk.x * tileset.tilewidth;
     const chunkY = chunk.y * tileset.tileheight;
 
+    let counter = 0;
+
     for (let i = 0; i < chunk.data.length; i++) {
       const row = Math.floor(i / chunk.width);
       const column = i - row * chunk.width;
 
       if (chunk.data[i] !== 0) {
-        const tilePos = this.getTilePosFromSpritesheet(
+        const tilePos = this.#getTilePosFromSpritesheet(
           chunk.data[i],
           tileset.columns,
           tileset.tilewidth,
-          tileset.tileheight
+          tileset.tileheight,
         );
 
-        drawImagePartWithTransform(
-          this.image,
-          tilePos.x,
-          tilePos.y,
-          tileset.tilewidth,
-          tileset.tileheight,
-          0 + chunkX + column * tileset.tilewidth,
-          0 + chunkY + row * tileset.tileheight,
-          tileset.tilewidth,
-          tileset.tileheight,
-          false,
-          false,
-          0,
-          0,
-          0,
-          this.game.ctx,
-          this.game.camera.x,
-          this.game.camera.y,
-          this.game.isDebug
-        );
+        const borderWidth = 1;
+        // check if tile have properties
+        const id = chunk.data[i];
+
+        if (this.tilesWithBorders.includes(id)) {
+          // draw this tile bigger
+          this.game.ctx.drawImage(
+            this.image,
+            tilePos.x - borderWidth,
+            tilePos.y - borderWidth,
+            tileset.tilewidth + borderWidth * 2,
+            tileset.tileheight + borderWidth * 2,
+            chunkX +
+              column * tileset.tilewidth -
+              this.game.camera.x -
+              borderWidth,
+            chunkY +
+              row * tileset.tileheight -
+              this.game.camera.y -
+              borderWidth,
+            tileset.tilewidth + borderWidth * 2,
+            tileset.tileheight + borderWidth * 2,
+          );
+        } else {
+          // draw this tile normal
+          this.game.ctx.drawImage(
+            this.image,
+            tilePos.x,
+            tilePos.y,
+            tileset.tilewidth,
+            tileset.tileheight,
+            chunkX + column * tileset.tilewidth - this.game.camera.x,
+            chunkY + row * tileset.tileheight - this.game.camera.y,
+            tileset.tilewidth,
+            tileset.tileheight,
+          );
+        }
+        // count how many times draw tile
+        counter++;
       }
     }
+
+    return counter;
   }
 
-  drawLayer(layerName) {
-    const layer = this.jsonData.layers.filter((el) => el.name === layerName)[0];
-
-    for (let i = 0; i < layer.chunks.length; i++) {
-      this.drawChunk(layer.chunks[i], this.jsonData.tilesets[0], this.image);
+  drawWorldBorders() {
+    // skip drawing until json is loaded
+    if (this.jsonData === null) {
+      console.warn("json file is no loaded yet, skipping drawWorldBorders");
+      return;
     }
-  }
 
-  getChunkIndex(myX, myY, layerIndex, jsonData) {
-    const tileX = Math.floor(myX / 16);
-    const tileY = Math.floor(myY / 16);
-
-    // TODO: on przeszukuje pierwszy layer, jeśli był by mniejszy (nie wiem czy to możliwe) to zwróci błędny chunk
-    // TODO: 16 jest hardcoded a nie powinno
-    const index = jsonData.layers[layerIndex].chunks.findIndex(
-      (el) =>
-        tileX >= el.x &&
-        tileX <= el.x + el.width &&
-        tileY >= el.y &&
-        tileY <= el.y + el.height
+    drawRectOnMap(
+      this.mapSize.bordersPositions.left,
+      this.mapSize.bordersPositions.top,
+      this.mapSize.dimensionsTiles.width * 16,
+      this.mapSize.dimensionsTiles.height * 16,
+      this.game.ctx,
+      this.game.camera,
+      "red",
+      5,
     );
-
-    return index;
-    // console.log(index);
   }
+
+  // getChunkIndex(myX, myY, layerIndex, jsonData) {
+  //   const tileX = Math.floor(myX / 16);
+  //   const tileY = Math.floor(myY / 16);
+
+  //   // TODO: on przeszukuje pierwszy layer, jeśli był by mniejszy (nie wiem czy to możliwe) to zwróci błędny chunk
+  //   // TODO: 16 jest hardcoded a nie powinno
+  //   const index = jsonData.layers[layerIndex].chunks.findIndex(
+  //     (el) =>
+  //       tileX >= el.x &&
+  //       tileX <= el.x + el.width &&
+  //       tileY >= el.y &&
+  //       tileY <= el.y + el.height
+  //   );
+
+  //   return index;
+  //   // console.log(index);
+  // }
 }
 
 // Vector
@@ -1111,7 +1647,9 @@ export class Vector {
   limit(max) {
     if (this.getLen() > max) {
       this.normalize();
-      this.mul(max);
+      this.mul(max, max);
+
+      return this;
     } else if (max === undefined) {
       console.log("No max value provided.");
     }
@@ -1282,7 +1820,7 @@ export function drawImagePartWithTransform(
   ctx,
   cameraX,
   cameraY,
-  isDebug
+  isDebug,
 ) {
   // sprawdź czy są wszystkie potrzebne zmienne
   if (
@@ -1313,7 +1851,7 @@ export function drawImagePartWithTransform(
   // Ustaw pivot jako punkt obracania
   ctx.translate(
     rotationOriginX + dx + sWidth / 2 - cameraX,
-    rotationOriginY + dy + sHeight / 2 - cameraY
+    rotationOriginY + dy + sHeight / 2 - cameraY,
   );
 
   // Obróć obraz o podaną ilość stopni
@@ -1328,7 +1866,7 @@ export function drawImagePartWithTransform(
   // Przesuń punkt obrotu z powrotem do początkowego punktu
   ctx.translate(
     -(rotationOriginX + dx + sWidth / 2),
-    -(rotationOriginY + dy + sHeight / 2)
+    -(rotationOriginY + dy + sHeight / 2),
   );
 
   // Narysuj konkretną część obrazka na canvasie
@@ -1336,14 +1874,14 @@ export function drawImagePartWithTransform(
 
   // Rysuj punkt obrotu
   if (isDebug) {
-    ctx.strokeStyle = "grey";
+    ctx.strokeStyle = "red";
     ctx.beginPath();
     ctx.arc(
       rotationOriginX + dx + sWidth / 2,
       rotationOriginY + dy + sHeight / 2,
       0.1, // Promień punktu obrotu
       0,
-      Math.PI * 2
+      Math.PI * 2,
     );
     ctx.closePath();
     ctx.stroke();
@@ -1363,16 +1901,39 @@ export function drawRectOnMap(
   ctx,
   camera,
   color = "black",
-  lineWidth = 1
+  lineWidth = 1,
+  isFill = false,
 ) {
-  // console.log(
-  //   `Drawing rect on map: x=${x}, y=${y}, width=${width}, height=${height}, camera=${camera}`
-  // );
+  // Hard type checks and NaN checks for all parameters
+  if (
+    typeof x !== "number" ||
+    isNaN(x) ||
+    typeof y !== "number" ||
+    isNaN(y) ||
+    typeof width !== "number" ||
+    isNaN(width) ||
+    typeof height !== "number" ||
+    isNaN(height) ||
+    typeof ctx !== "object" ||
+    typeof camera !== "object" ||
+    typeof color !== "string" ||
+    typeof lineWidth !== "number" ||
+    isNaN(lineWidth)
+  ) {
+    console.error("drawRectOnMap: Invalid argument(s).");
+    return;
+  }
+
   ctx.lineWidth = lineWidth;
   ctx.strokeStyle = color;
   ctx.beginPath();
   ctx.rect(x - camera.x, y - camera.y, width, height);
-  ctx.stroke();
+  if (isFill) {
+    ctx.fillStyle = color;
+    ctx.fill();
+  } else {
+    ctx.stroke();
+  }
   ctx.closePath();
   ctx.strokeStyle = "black";
   ctx.lineWidth = 1;
@@ -1386,7 +1947,7 @@ export function drawLineOnMap(
   ctx,
   camera,
   color = "black",
-  lineWidth = 1
+  lineWidth = 1,
 ) {
   ctx.lineWidth = lineWidth;
   ctx.strokeStyle = color;
@@ -1406,7 +1967,7 @@ export function drawCircleOnMap(
   ctx,
   camera,
   color = "black",
-  lineWidth = 1
+  lineWidth = 1,
 ) {
   ctx.strokeStyle = color;
   ctx.lineWidth = lineWidth;
@@ -1431,7 +1992,7 @@ export function isLineRectCollision(x1, y1, x2, y2, rx, ry, rw, rh, game) {
     ry,
     rx + rw,
     ry + rh,
-    game
+    game,
   );
   const top = isLineLineCollision(x1, y1, x2, y2, rx, ry, rx + rw, ry, game);
   const bottom = isLineLineCollision(
@@ -1443,7 +2004,7 @@ export function isLineRectCollision(x1, y1, x2, y2, rx, ry, rw, rh, game) {
     ry + rh,
     rx + rw,
     ry + rh,
-    game
+    game,
   );
 
   // if ANY of the above are true, the line
@@ -1475,7 +2036,7 @@ export function isLineLineCollision(x1, y1, x2, y2, x3, y3, x4, y4, game) {
         game.ctx,
         game.camera,
         "red",
-        2
+        2,
       );
 
       // draw thes lines
@@ -1494,6 +2055,12 @@ export function drawTextOnMap(text, x, y, game) {
   game.ctx.fillText(text, x - game.camera.x, y - game.camera.y);
 }
 
+export function drawText(text, x, y, game) {
+  game.ctx.font = "10px Arial";
+  game.ctx.fillStyle = "black";
+  game.ctx.fillText(text, x, y);
+}
+
 export function drawRect(
   x,
   y,
@@ -1502,7 +2069,7 @@ export function drawRect(
   game,
   color = "black",
   lineWidth = 1,
-  fill = false
+  fill = false,
 ) {
   game.ctx.fillStyle = color;
   game.ctx.strokeStyle = color;
@@ -1515,4 +2082,22 @@ export function drawRect(
     game.ctx.stroke();
   }
   game.ctx.closePath();
+}
+
+/**
+ * @description
+ *   Generates 2D position from 1D array index.
+ *
+ * @param {number} index
+ *   1D array index.
+ * @param {number} columns
+ *   Number of columns in 2D array.
+ *
+ * @returns {{x: number, y: number}}
+ *   2D position.
+ */
+export function get2dPosFrom1dArray(index, columns) {
+  const x = index % columns;
+  const y = Math.floor(index / columns);
+  return { x, y };
 }

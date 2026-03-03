@@ -1,25 +1,17 @@
 import { Game } from "./DGamev3.js";
+import { ShapesCharacter } from "./shapesCharacter.js";
 // import jsonData from "./gamev9.json" with { type: "json" };
 
 const game = new Game();
-game.init("canvas", 800, 600, 2);
+game.init("canvas", 800, 600, 1);
 
-const bigSpritev7 = new Image();
-bigSpritev7.src = "BigSpritev7.png";
+const char1 = new ShapesCharacter(10, 10, 20, 20, game);
 
-// Game loop
-requestAnimationFrame(gameLoop);
-let lastTime = 0;
-function gameLoop(timestamp) {
-  const deltaTime = +(timestamp - lastTime).toFixed(2);
-  lastTime = timestamp;
+game.draw = function (dt) {
+  char1.draw(dt);
+};
 
-  update(deltaTime);
-
-  draw(deltaTime);
-
-  requestAnimationFrame(gameLoop);
-}
-
-function update(deltaTime) {}
-function draw(deltaTime) {}
+game.update = function (dt) {
+  // game.moveCameraRMB();
+  char1.update(dt);
+};
